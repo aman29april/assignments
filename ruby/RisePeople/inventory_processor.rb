@@ -23,7 +23,7 @@ module InventoryProcessor
     # Using rails method
     # InventoryData.products.group_by{|product| product[:categories]}.values
 
-    # without rails inbuilt method
+    # without using rails inbuilt method
     result = {}
     InventoryData.products.each do |product|
       key = product[:categories]
@@ -39,15 +39,7 @@ module InventoryProcessor
     products_count = products.length
 
     ## METHOD 1: Brutforce Approach##
-    # Using array combinations and try every possible array subsequence
-    # 1.upto(products_count).to_a.shuffle.each do |n|
-    #   products.combination(n).to_a.shuffle.each do |n_products|
-    #     if n_products.map { |product| product[:serving_calories] }.sum <= max_calories
-    #       return n_products
-    #     end
-    #   end
-    # end
-
+    # return products_by_brutforce(max_calories, products)
 
     ## METHOD 2: USING Dynamic Programming##
     # To save memory, factor can be used.
@@ -55,8 +47,70 @@ module InventoryProcessor
     # example  if target is 1500, value will become 1500 / 10 => 150
     # similarly, calories of each product will also be factored.
     factor = 10
+    dp = build_dp(products, max_calories, factor)
 
-    dp = Array.new(products_count + 1) { Array.new(max_calories / factor + 1, false) }
+    possible_products = backtrack_dp(dp, max_calories, factor)
+    return [] if possible_products.empty?
+
+    possible_products.sample.to_a.map { |index| products[index] }
+  end
+
+  private
+
+
+  #find closest target sum, starting from the last element of DP array
+  def get_closest_cell(dp, max_calories, factor)
+    i = InventoryData.products.count
+    j = max_calories / factor
+
+    j -= 1 while j > 0 && !dp[i][j]
+    return i, j
+  end
+
+  def backtrack_dp(dp, max_calories, factor=1)
+    i, j = get_closest_cell(dp, max_calories, factor) # if we do not have exact match, try to reduce calories
+
+    # if no possible products with the target calories
+    return [] if j.zero?
+
+    possible_products = []
+    products = InventoryData.products
+    queue = []
+    queue << Pair.new(i, j, [])
+
+    # look up in the dp array to find the list of products with calories sum as dp[j]
+    while queue.any?
+      current = queue.shift
+
+      # if we reached bounds, i.e. first row or column
+      if current.i.zero? || current.j.zero?
+        possible_products << current.path
+        next
+      end
+
+      excluded = dp[current.i - 1][current.j] # upper cell
+
+      # If upper cell is true, means there is possibility that current product is not included
+      queue << Pair.new(current.i - 1, current.j, current.path) if excluded
+
+      current_product = products[current.i - 1]
+      remaining_calories = current_product[:serving_calories] / factor
+      if current.j >= remaining_calories
+        remaining_calories = current.j - remaining_calories
+
+        # if current product is included and check if possibility with remaining calories
+        included = dp[current.i - 1][remaining_calories]
+        next unless included
+
+        # add product index in path
+        queue << Pair.new(current.i - 1, remaining_calories, current.path.dup.push(current.i - 1))
+      end
+    end
+    possible_products
+  end
+
+  def build_dp(products, max_calories, factor=1)
+    dp = Array.new(products.count + 1) { Array.new(max_calories / factor + 1, false) }
     dp.each_with_index do |row, i|
       row.each_with_index do |_val, j|
         if j.zero? # first column
@@ -83,50 +137,18 @@ module InventoryProcessor
         end
       end
     end
+    dp
+  end
 
-    # find closest target sum, starting from the last element of 2d array
-    i = products_count
-    j = max_calories / factor
-
-    j -= 1 while j > 0 && !dp[i][j] # if we do not have exact match, try to reduce calories
-
-    # if no possible products with the target calories
-    return [] if j.zero?
-
-    queue = []
-    queue << Pair.new(i, j, [])
-
-    possible_products = []
-    while queue.any?
-      rem = queue.shift
-
-      # if we reached bounds
-      if rem.i.zero? || rem.j.zero?
-        possible_products << rem.path
-        next
-      end
-
-      exc = dp[rem.i - 1][rem.j] # upper cell
-
-      # If upper cell is true, means there is possibility that current product is not included
-      queue << Pair.new(rem.i - 1, rem.j, rem.path) if exc
-
-      current_product = products[rem.i - 1]
-      remaining_calories = current_product[:serving_calories] / factor
-      if rem.j >= remaining_calories
-        remaining_calories = rem.j - remaining_calories
-
-        # if current product is included and check if possibility with remaining calories
-        inc = dp[rem.i - 1][remaining_calories]
-        next unless inc
-
-        # add product index in path
-        queue << Pair.new(rem.i - 1, remaining_calories, rem.path.dup.push(rem.i - 1))
+  # Using array combinations and try every possible array subsequence
+  def products_by_brutforce(max_calories, products)
+    1.upto(products.count).to_a.shuffle.each do |n|
+      products.combination(n).to_a.shuffle.each do |n_products|
+        if n_products.map { |product| product[:serving_calories] }.inject(:+) <= max_calories
+          return n_products
+        end
       end
     end
-    return [] if possible_products.empty?
-
-    puts possible_products.sample.to_a.to_s
-    possible_products.sample.to_a.map { |index| products[index] }
+    []
   end
 end
